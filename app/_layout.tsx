@@ -1,7 +1,34 @@
+import { StatusBar } from 'react-native';
+import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 import '../global.css';
 
 import { Stack } from 'expo-router';
 
 export default function Layout() {
-  return <Stack />;
+  const [fontsLoaded] = useFonts({
+    'Poppins-Regular': require('../assets/fonts/Poppins-Regular.ttf'),
+    'Poppins-Medium': require('../assets/fonts/Poppins-Medium.ttf'),
+    'Poppins-SemiBold': require('../assets/fonts/Poppins-SemiBold.ttf'),
+    'Poppins-Bold': require('../assets/fonts/Poppins-Bold.ttf'),
+  });
+
+  useEffect(() => {
+    const prepare = async () => {
+      await SplashScreen.preventAutoHideAsync();
+    };
+    prepare();
+  }, []);
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
+  return (
+    <>
+      <StatusBar barStyle={"light-content"} />
+      <Stack />
+    </>
+  );
 }
