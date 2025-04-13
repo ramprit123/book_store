@@ -1,8 +1,6 @@
+import { User } from '@supabase/supabase-js';
 import { create } from 'zustand';
-import { createClient, User } from '@supabase/supabase-js';
 import { supabase } from '~/utils/supabase';
-
-
 
 interface AuthState {
   user: User | null;
@@ -13,14 +11,9 @@ interface AuthState {
   signOut: () => Promise<void>;
 }
 
-export interface BearState extends AuthState {
-  bears: number;
-  increasePopulation: () => void;
-  removeAllBears: () => void;
-  updateBears: (newBears: number) => void;
-}
 
-export const useStore = create<BearState>((set) => ({
+
+export const useStore = create<AuthState>((set) => ({
   // Auth state
   user: null,
   session: null,
@@ -66,11 +59,6 @@ export const useStore = create<BearState>((set) => ({
     }
   },
 
-  // Existing bear state
-  bears: 0,
-  increasePopulation: () => set((state) => ({ bears: state.bears + 1 })),
-  removeAllBears: () => set({ bears: 0 }),
-  updateBears: (newBears) => set({ bears: newBears }),
 }));
 
 // Initialize auth state
