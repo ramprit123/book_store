@@ -3,27 +3,32 @@ import { decode } from 'base64-arraybuffer';
 import { create } from 'zustand';
 
 interface BookState {
-  books: Book[];
+  books: {
+    data: Book[];
+    count: number;
+  };
   currentBook: Book | null;
   loading: boolean;
   error: string | null;
-  setBooks: (books: Book[]) => void;
+  setBooks: (books: Book[], count: number) => void;
   setCurrentBook: (book: Book | null) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 }
 
 export const useBookStore = create<BookState>(set => ({
-  books: [],
+  books: {
+    data: [],
+    count: 0,
+  },
   currentBook: null,
   loading: false,
   error: null,
-  setBooks: books => set({ books }),
+  setBooks: (books: Book[], count: number) => set({ books: { data: books, count } }),
   setCurrentBook: book => set({ currentBook: book }),
   setLoading: loading => set({ loading }),
   setError: error => set({ error }),
 }));
-
 
 // Define the Book interface
 interface Book {
@@ -31,7 +36,7 @@ interface Book {
   title: string;
   caption?: string;
   image?: string;
-  author: string;
+  user_id: string;
   rating: number;
   description?: string;
   price: number;
@@ -195,30 +200,38 @@ export class BookStore {
     page: number = 1,
     limit: number = 10,
     orderBy: string = 'created',
-    ascending: boolean = false
+    ascending: boolean = false,
+    searchQuery?: string
   ): Promise<{ data: Book[]; count: number }> {
-    // Calculate the starting point
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    try {
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
 
-    const { data, error, count } = await supabase
-      .from('books')
-      .select('*', { count: 'exact' })
-      .order(orderBy, { ascending })
-      .range(from, to);
+      let query = supabase.from('books').select(
+        `*,
+    user:user_id (id, email)`,
+        { count: 'exact' }
+      );
 
-    if (error) {
+      if (searchQuery) {
+        query = query.ilike('title', `%${searchQuery}%`);
+      }
+
+      const { data, error, count } = await query.order(orderBy, { ascending }).range(from, to);
+
+      if (error) throw error;
+
+      return {
+        data: data || [],
+        count: count || 0,
+      };
+    } catch (error) {
       console.error('Error fetching books with pagination:', error);
       return { data: [], count: 0 };
     }
-
-    return {
-      data: data || [],
-      count: count || 0,
-    };
   }
   // Read all books
-  async getAllBooks(): Promise<Book[]> {
+  async getAllBooks() {
     const { data, error } = await supabase
       .from('books')
       .select('*')
