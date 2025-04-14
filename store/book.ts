@@ -1,286 +1,287 @@
 import { supabase } from '~/utils/supabase';
 import { decode } from 'base64-arraybuffer';
+import { create } from 'zustand';
+
+interface BookState {
+  books: Book[];
+  currentBook: Book | null;
+  loading: boolean;
+  error: string | null;
+  setBooks: (books: Book[]) => void;
+  setCurrentBook: (book: Book | null) => void;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+}
+
+export const useBookStore = create<BookState>(set => ({
+  books: [],
+  currentBook: null,
+  loading: false,
+  error: null,
+  setBooks: books => set({ books }),
+  setCurrentBook: book => set({ currentBook: book }),
+  setLoading: loading => set({ loading }),
+  setError: error => set({ error }),
+}));
+
 
 // Define the Book interface
 interface Book {
-      id: string;
-      title: string;
-      caption?: string;
-      image?: string;
-      author: string;
-      rating: number;
-      description?: string;
-      price: number;
-      stock: number;
-      created: string;
-      updated: string;
+  id: string;
+  title: string;
+  caption?: string;
+  image?: string;
+  author: string;
+  rating: number;
+  description?: string;
+  price: number;
+  stock: number;
+  created: string;
+  updated: string;
 }
-
 
 // CRUD Operations
 export class BookStore {
-      private readonly BUCKET_NAME = 'books';
+  private readonly BUCKET_NAME = 'books';
 
-      private async uploadImage(base64Image: string): Promise<string | null> {
-            try {
-                  const fileName = `book-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                  const fileExt = 'jpg';
-                  const filePath = `${fileName}.${fileExt}`;
-                  const contentType = 'image/jpeg';
+  private async uploadImage(base64Image: string): Promise<string | null> {
+    try {
+      const fileName = `book-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const fileExt = 'jpg';
+      const filePath = `${fileName}.${fileExt}`;
+      const contentType = 'image/jpeg';
 
-                  // Remove data URL prefix if present
-                  const base64Data = base64Image.includes('base64,')
-                        ? base64Image.split('base64,')[1]
-                        : base64Image;
+      // Remove data URL prefix if present
+      const base64Data = base64Image.includes('base64,')
+        ? base64Image.split('base64,')[1]
+        : base64Image;
 
-                  const { data, error } = await supabase.storage
-                        .from(this.BUCKET_NAME)
-                        .upload(filePath, decode(base64Data), {
-                              contentType,
-                              upsert: true
-                        });
+      const { data, error } = await supabase.storage
+        .from(this.BUCKET_NAME)
+        .upload(filePath, decode(base64Data), {
+          contentType,
+          upsert: true,
+        });
 
-                  if (error) throw error;
+      if (error) throw error;
 
-                  const { data: { publicUrl } } = supabase.storage
-                        .from(this.BUCKET_NAME)
-                        .getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from(this.BUCKET_NAME).getPublicUrl(filePath);
 
-                  return publicUrl;
-            } catch (error) {
-                  console.error('Error uploading image:', error);
-                  return null;
-            }
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      return null;
+    }
+  }
+
+  private async deleteImage(imageUrl: string): Promise<boolean> {
+    try {
+      const fileName = imageUrl.split('/').pop();
+      if (!fileName) return false;
+
+      const { error } = await supabase.storage.from(this.BUCKET_NAME).remove([fileName]);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      return false;
+    }
+  }
+
+  async createBookWithImage(bookData: {
+    title: string;
+    caption?: string;
+    image?: string;
+    author: string;
+    rating: number;
+    description?: string;
+    price: number;
+    stock: number;
+  }): Promise<Book | null> {
+    try {
+      let imageUrl = null;
+      if (bookData.image) {
+        imageUrl = await this.uploadImage(bookData.image);
       }
 
-      private async deleteImage(imageUrl: string): Promise<boolean> {
-            try {
-                  const fileName = imageUrl.split('/').pop();
-                  if (!fileName) return false;
+      const { image: base64Image, ...bookInfo } = bookData;
+      const book = {
+        ...bookInfo,
+        image: imageUrl,
+      };
 
-                  const { error } = await supabase.storage
-                        .from(this.BUCKET_NAME)
-                        .remove([fileName]);
+      const { data, error } = await supabase.from('books').insert(book).select().single();
 
-                  if (error) throw error;
-                  return true;
-            } catch (error) {
-                  console.error('Error deleting image:', error);
-                  return false;
-            }
+      if (error) {
+        console.error('Error creating book:', error);
+        return null;
       }
 
-      async createBookWithImage(bookData: {
-            title: string;
-            caption?: string;
-            image?: string;
-            author: string;
-            rating: number;
-            description?: string;
-            price: number;
-            stock: number;
-      }): Promise<Book | null> {
-            try {
-                  let imageUrl = null;
-                  if (bookData.image) {
-                        imageUrl = await this.uploadImage(bookData.image);
-                  }
+      return data;
+    } catch (error) {
+      console.error('Error creating book with image:', error);
+      return null;
+    }
+  }
 
-                  const { image: base64Image, ...bookInfo } = bookData;
-                  const book = {
-                        ...bookInfo,
-                        image: imageUrl
-                  };
+  async updateBookWithImage(
+    id: string,
+    updates: Partial<Book> & { base64Image?: string }
+  ): Promise<Book | null> {
+    try {
+      const currentBook = await this.getBook(id);
+      if (!currentBook) return null;
 
-                  const { data, error } = await supabase
-                        .from('books')
-                        .insert(book)
-                        .select()
-                        .single();
+      let imageUrl = currentBook.image;
 
-                  if (error) {
-                        console.error('Error creating book:', error);
-                        return null;
-                  }
-
-                  return data;
-            } catch (error) {
-                  console.error('Error creating book with image:', error);
-                  return null;
-            }
+      if (updates.base64Image) {
+        // Delete old image if exists
+        if (currentBook.image) {
+          await this.deleteImage(currentBook.image);
+        }
+        // Upload new image
+        imageUrl = (await this.uploadImage(updates.base64Image)) || undefined;
       }
 
-      async updateBookWithImage(
-            id: string,
-            updates: Partial<Book> & { base64Image?: string }
-      ): Promise<Book | null> {
-            try {
-                  const currentBook = await this.getBook(id);
-                  if (!currentBook) return null;
+      const { base64Image, ...bookUpdates } = updates;
+      return await this.updateBook(id, {
+        ...bookUpdates,
+        image: imageUrl,
+      });
+    } catch (error) {
+      console.error('Error updating book with image:', error);
+      return null;
+    }
+  }
 
-                  let imageUrl = currentBook.image;
+  // Override the original deleteBook to handle image deletion
+  // Delete a book and its associated image
+  async deleteBookAndImage(id: string): Promise<boolean> {
+    try {
+      const book = await this.getBook(id);
+      if (!book) return false;
 
-                  if (updates.base64Image) {
-                        // Delete old image if exists
-                        if (currentBook.image) {
-                              await this.deleteImage(currentBook.image);
-                        }
-                        // Upload new image
-                        imageUrl = await this.uploadImage(updates.base64Image) || undefined;
-                  }
-
-                  const { base64Image, ...bookUpdates } = updates;
-                  return await this.updateBook(id, {
-                        ...bookUpdates,
-                        image: imageUrl
-                  });
-            } catch (error) {
-                  console.error('Error updating book with image:', error);
-                  return null;
-            }
+      if (book.image) {
+        await this.deleteImage(book.image);
       }
 
-      // Override the original deleteBook to handle image deletion
-      // Delete a book and its associated image
-      async deleteBookAndImage(id: string): Promise<boolean> {
-            try {
-                  const book = await this.getBook(id);
-                  if (!book) return false;
+      const { error } = await supabase.from('books').delete().eq('id', id);
 
-                  if (book.image) {
-                        await this.deleteImage(book.image);
-                  }
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error deleting book:', error);
+      return false;
+    }
+  }
 
-                  const { error } = await supabase
-                        .from('books')
-                        .delete()
-                        .eq('id', id);
+  // Read a single book by ID
+  async getBook(id: string): Promise<Book | null> {
+    const { data, error } = await supabase.from('books').select('*').eq('id', id).single();
 
-                  if (error) throw error;
-                  return true;
-            } catch (error) {
-                  console.error('Error deleting book:', error);
-                  return false;
-            }
-      }
+    if (error) {
+      console.error('Error fetching book:', error);
+      return null;
+    }
 
-      // Read a single book by ID
-      async getBook(id: string): Promise<Book | null> {
-            const { data, error } = await supabase
-                  .from('books')
-                  .select('*')
-                  .eq('id', id)
-                  .single();
+    return data;
+  }
 
-            if (error) {
-                  console.error('Error fetching book:', error);
-                  return null;
-            }
+  // Get books with pagination
+  async getBooksWithPagination(
+    page: number = 1,
+    limit: number = 10,
+    orderBy: string = 'created',
+    ascending: boolean = false
+  ): Promise<{ data: Book[]; count: number }> {
+    // Calculate the starting point
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
 
-            return data;
-      }
+    const { data, error, count } = await supabase
+      .from('books')
+      .select('*', { count: 'exact' })
+      .order(orderBy, { ascending })
+      .range(from, to);
 
-      // Get books with pagination
-      async getBooksWithPagination(
-            page: number = 1,
-            limit: number = 10,
-            orderBy: string = 'created',
-            ascending: boolean = false
-      ): Promise<{ data: Book[]; count: number }> {
-            // Calculate the starting point
-            const from = (page - 1) * limit;
-            const to = from + limit - 1;
+    if (error) {
+      console.error('Error fetching books with pagination:', error);
+      return { data: [], count: 0 };
+    }
 
-            const { data, error, count } = await supabase
-                  .from('books')
-                  .select('*', { count: 'exact' })
-                  .order(orderBy, { ascending })
-                  .range(from, to);
+    return {
+      data: data || [],
+      count: count || 0,
+    };
+  }
+  // Read all books
+  async getAllBooks(): Promise<Book[]> {
+    const { data, error } = await supabase
+      .from('books')
+      .select('*')
+      .order('created', { ascending: false });
 
-            if (error) {
-                  console.error('Error fetching books with pagination:', error);
-                  return { data: [], count: 0 };
-            }
+    if (error) {
+      console.error('Error fetching books:', error);
+      return [];
+    }
 
-            return {
-                  data: data || [],
-                  count: count || 0
-            };
-      }
-      // Read all books
-      async getAllBooks(): Promise<Book[]> {
-            const { data, error } = await supabase
-                  .from('books')
-                  .select('*')
-                  .order('created', { ascending: false });
+    return data || [];
+  }
 
-            if (error) {
-                  console.error('Error fetching books:', error);
-                  return [];
-            }
+  // Update a book
+  async updateBook(id: string, updates: Partial<Book>): Promise<Book | null> {
+    const { data, error } = await supabase
+      .from('books')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
 
-            return data || [];
-      }
+    if (error) {
+      console.error('Error updating book:', error);
+      return null;
+    }
 
-      // Update a book
-      async updateBook(id: string, updates: Partial<Book>): Promise<Book | null> {
-            const { data, error } = await supabase
-                  .from('books')
-                  .update(updates)
-                  .eq('id', id)
-                  .select()
-                  .single();
+    return data;
+  }
 
-            if (error) {
-                  console.error('Error updating book:', error);
-                  return null;
-            }
+  // Delete a book
+  async deleteBook(id: string): Promise<boolean> {
+    const { error } = await supabase.from('books').delete().eq('id', id);
 
-            return data;
-      }
+    if (error) {
+      console.error('Error deleting book:', error);
+      return false;
+    }
 
-      // Delete a book
-      async deleteBook(id: string): Promise<boolean> {
-            const { error } = await supabase
-                  .from('books')
-                  .delete()
-                  .eq('id', id);
+    return true;
+  }
 
-            if (error) {
-                  console.error('Error deleting book:', error);
-                  return false;
-            }
+  // Search books by title
+  async searchBooks(query: string): Promise<Book[]> {
+    const { data, error } = await supabase.from('books').select('*').ilike('title', `%${query}%`);
 
-            return true;
-      }
+    if (error) {
+      console.error('Error searching books:', error);
+      return [];
+    }
 
-      // Search books by title
-      async searchBooks(query: string): Promise<Book[]> {
-            const { data, error } = await supabase
-                  .from('books')
-                  .select('*')
-                  .ilike('title', `%${query}%`);
+    return data || [];
+  }
 
-            if (error) {
-                  console.error('Error searching books:', error);
-                  return [];
-            }
+  // Get books by author
+  async getBooksByAuthor(authorId: string): Promise<Book[]> {
+    const { data, error } = await supabase.from('books').select('*').eq('author', authorId);
 
-            return data || [];
-      }
+    if (error) {
+      console.error('Error fetching books by author:', error);
+      return [];
+    }
 
-      // Get books by author
-      async getBooksByAuthor(authorId: string): Promise<Book[]> {
-            const { data, error } = await supabase
-                  .from('books')
-                  .select('*')
-                  .eq('author', authorId);
-
-            if (error) {
-                  console.error('Error fetching books by author:', error);
-                  return [];
-            }
-
-            return data || [];
-      }
+    return data || [];
+  }
 }
